@@ -5,3 +5,8 @@
 */node_modules/*
 */package.json
 */package-lock.json 
+*.env
+
+# Noodle configutation files
+backend/requests/.timeline/*
+backend/requests/.environments/request.local.env

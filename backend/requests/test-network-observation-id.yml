@@ -1,0 +1,11 @@
+name: test-network-observation-id
+method: GET
+url: $BASE_URL_NETWORK/observations/14707658
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+  Authorization: TOKEN $TOKEN_NETWORK
+body: ''
+body_type: none

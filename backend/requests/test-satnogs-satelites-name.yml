@@ -1,0 +1,16 @@
+name: test-satnogs-satelites-name
+method: GET
+url: $BASE_URL_DB/api/satellites/
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+  Authorization: TOKEN $TOKEN_DB
+params:
+  - name: search
+    value: LUSAT
+  - name: limit
+    value: '5'
+body: ''
+body_type: none
