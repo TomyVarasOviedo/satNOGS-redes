@@ -1,4 +1,4 @@
-lastRequest: test-api-local-observation-id
+lastRequest: test-stanogs-telemetry
 test-satnogs-satelites-name:
   request: params
   response: body
@@ -6,5 +6,8 @@ test-satnogs-satelite-id:
   request: params
   response: body
 test-api-local:
+  request: params
+  response: body
+test-stanogs-telemetry:
   request: params
   response: body
