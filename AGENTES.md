@@ -4,11 +4,7 @@
 
 ## 1. Propósito del Proyecto
 
-<<<<<<< Updated upstream
 Dashboard de monitoreo de telecomunicaciones satelitales para la asignatura **Redes de Datos II** (Unidad N° 6: Redes Satelitales y Nuevas Tecnologías Inalámbricas). El sistema establece la analogía entre la monitorización de infraestructura terrestre (routers, switches, enlaces WAN) y la infraestructura aeroespacial (satélites de órbita baja - LEO), consumiendo la red global y abierta de estaciones terrenas **SatNOGS**.
-=======
-El presente proyecto tiene como objetivo principal diseñar e implementar un sistema de monitoreo de telecomunicaciones satelitales, concebido como trabajo final para la asignatura Redes de Datos II.
->>>>>>> Stashed changes
 
 Funcionalidades principales:
 
@@ -21,15 +17,8 @@ El sistema actúa como una capa de abstracción que consume, limpia y presenta l
 
 ## 2. Tecnologías Empleadas
 
-<<<<<<< Updated upstream
 *   **Backend:** Python + FastAPI (actúa como *middleware* entre el Frontend y las APIs de SatNOGS). Propagación orbital con `skyfield`/`sgp4` para calcular la posición sub-satélite. Caché en memoria de respuestas para reducir latencia.
 *   **Frontend:** ReactJS + Vite. Mapa 2D con MapLibre (o Leaflet). Componentes funcionales reutilizables y manejo de estado predecible y eficiente.
-=======
-Para garantizar un desarrollo ágil, eficiente y alineado con los estándares actuales del mercado, la arquitectura del proyecto se divide en dos tecnologías principales:
-
-*   **Backend:** Python 3.11 + FastAPI (procesamiento de datos, interconexión con APIs externas, lógica de red y cómputo orbital).
-*   **Frontend:** ReactJS con Vite (interfaz de usuario reactiva, modular y de alto rendimiento). **Aún no existe**: debe crearse desde cero en la raíz del repo.
->>>>>>> Stashed changes
 
 ## 3. Directrices y Buenas Prácticas (Best Practices)
 
@@ -69,17 +58,6 @@ El repositorio mantendrá un desacoplamiento absoluto en dos directorios princip
 
 ```text
 📦 Raíz del Proyecto
-<<<<<<< Updated upstream
- ┣ 📂 Backend/
- ┃ ┗ 📜 (Contendrá exclusivamente la lógica del servidor Python, manejadores de rutas,
- ┃      servicios de conexión a SatNOGS, propagación orbital, entornos virtuales y
- ┃      configuración del servidor).
- ┣ 📂 Frontend/
- ┃ ┗ 📜 (Contendrá exclusivamente la aplicación ReactJS, componentes de interfaz visual,
- ┃      vistas, mapa 2D, hojas de estilo y empaquetadores como Vite o Webpack).
- ┗ 📜 AGENTES.md (Documento de definición arquitectónica)
-```
-=======
  ┣ 📂 backend/          # Solo lógica Python: servidor, rutas, servicios, cómputo, caché, scripts
  ┣ 📂 frontend/         # Solo la app React: vistas, componentes, estilos, build
  ┣ 📂 docs/             # Documentación, resúmenes y minutas
@@ -221,4 +199,3 @@ La minuta `docs/2026-08-05-resiliencia-backend-conectividad-limitada.md` define 
 - Dependencias backend actuales (ver `backend/pyproject.toml`): `fastapi`, `httpx`, `python-dotenv`, `requests`, `uvicorn`. Se agregarán `skyfield` (y su dependencia `sgp4`).
 - Datos de ejemplo y pruebas: `backend/requests/*.yml` (requests de Thunder Client) y respuestas capturadas en `backend/requests/.timeline/*.bodies/`.
 - Áreas de conocimiento de referencia: `docs/Redes_Satelitales_Resumen.md` (contenido de la materia).
->>>>>>> Stashed changes
