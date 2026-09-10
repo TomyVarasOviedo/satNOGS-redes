@@ -187,7 +187,7 @@ async def get_observations_by_id(id: int):
     try:
         async with httpx.AsyncClient() as client:
             observations_info = await client.get(
-                f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/{id}",
+                f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/{id}/",
                 headers=HEADERS["NETWORK"]
             )
             observations_info.raise_for_status()
