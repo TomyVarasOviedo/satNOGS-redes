@@ -14,3 +14,25 @@ SERVER_CONFIG = {
     "PORT": os.getenv("BACKEND_PORT"),
     "HOST": os.getenv("BACKEND_HOST"),
 }
+
+RESILIENCE_CONFIG = {
+    "CACHE_DIR": os.getenv("CACHE_DIR", "./cache"),
+    "REQUEST_TIMEOUT": int(os.getenv("REQUEST_TIMEOUT", "10")),
+    "RETRY_MAX_ATTEMPTS": int(os.getenv("RETRY_MAX_ATTEMPTS", "3")),
+    "RETRY_BACKOFF_FACTOR": float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5")),
+    "RETRY_BACKOFF_MAX": int(os.getenv("RETRY_BACKOFF_MAX", "30")),
+    "CIRCUIT_FAILURE_THRESHOLD": int(os.getenv("CIRCUIT_FAILURE_THRESHOLD", "5")),
+    "CIRCUIT_RECOVERY_TIMEOUT": int(os.getenv("CIRCUIT_RECOVERY_TIMEOUT", "60")),
+    "REFRESH_INTERVAL": int(os.getenv("REFRESH_INTERVAL", "300")),
+    "DEFAULT_TTL_METADATA": int(os.getenv("DEFAULT_TTL_METADATA", "86400")),
+    "DEFAULT_TTL_OBSERVATIONS": int(os.getenv("DEFAULT_TTL_OBSERVATIONS", "300")),
+    "DEFAULT_TTL_TELEMETRY": int(os.getenv("DEFAULT_TTL_TELEMETRY", "600")),
+}
+
+SATELLITES_TO_MONITOR = [
+    {"norad_id": 25542, "name": "ISS"},
+    {"norad_id": 20442, "name": "LUSAT"},
+    {"norad_id": 40012, "name": "NOAA 18"},
+    {"norad_id": 43529, "name": "METEOR-M2"},
+    {"norad_id": 32784, "name": "FUNCUBE-1"},
+]

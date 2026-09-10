@@ -1,17 +1,24 @@
-from utils.config import SATNOGS_CONFIG, SERVER_CONFIG
-
+from contextlib import asynccontextmanager
 from functools import wraps
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-import requests
-from requests.exceptions import HTTPError
-import httpx 
-import uvicorn
+import httpx
 import json
+import uvicorn
+from utils.config import SATNOGS_CONFIG, SERVER_CONFIG, RESILIENCE_CONFIG, SATELLITES_TO_MONITOR
+from services.satnogs import fetch_with_cache
+from services.refresher import refresher
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    refresher.start()
+    yield
+    refresher.stop()
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     GZipMiddleware,
     minimum_size=1000
@@ -24,16 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-HEADERS = {
-    "DB":{
-        "Accept": "application/json",
-        "Authorization": f"TOKEN {SATNOGS_CONFIG['DB_TOKEN_SATNOGS']}"
-    },
-    "NETWORK":{
-        "Accept": "application/json",
-        "Authorization": f"TOKEN {SATNOGS_CONFIG['NETWORK_TOKEN']}"
-    }
-}
 
 def paginate(data, limit: int | None, offset: int | None):
     start = offset or 0
@@ -45,10 +42,12 @@ def paginate(data, limit: int | None, offset: int | None):
         return data
     return data
 
+
 def async_lru_cache(maxsize: int = 128):
     def decorator(func):
         cache = {}
         order = []
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
             key = args + tuple(sorted(kwargs.items()))
@@ -65,38 +64,38 @@ def async_lru_cache(maxsize: int = 128):
         return wrapper
     return decorator
 
+
+def build_response(data: any, source: str, cache_age: int, status_code: int = 200) -> Response:
+    return Response(
+        content=json.dumps(data),
+        status_code=status_code,
+        media_type="application/json",
+        headers={
+            "X-Source": source,
+            "X-Cache-Age": str(cache_age),
+        },
+    )
+
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
+
 @app.get("/satelite/{satelite_id}")
 async def get_satelite_by_id(satelite_id: str):
-    """
-    Get satellite information by its ID.
-
-    @param satelite_id: The ID of the satellite for which to retrieve information.
-    @return: A dictionary containing the status code and satellite information, or an error message.
-    """
     try:
-        async with httpx.AsyncClient() as client:
-            satelite_info = await client.get(
-                f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?sat_id={satelite_id}",
-                headers=HEADERS["DB"]
-            )
-            satelite_info.raise_for_status()
-            return Response(
-                content=satelite_info.content,
-                status_code=satelite_info.status_code,
-                media_type="application/json"
-            )
-    
-    except HTTPError as http_err:
-        return {
-            "error": f"{http_err}", 
-            "status_code": satelite_info.status_code
-            }
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="satellite_metadata",
+            params={"sat_id": satelite_id},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_METADATA"],
+            source="DB",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?sat_id={p['sat_id']}",
+        )
+        return build_response(data, source, cache_age)
     except Exception as e:
-        return {"error": str(e), "status_code": 500}
+        return build_response({"error": str(e)}, "error", 0, 500)
+
 
 @app.get("/satelites/{satelite_name}")
 @async_lru_cache(maxsize=128)
@@ -105,39 +104,23 @@ async def get_satelite_by_name(
     limit: int | None = Query(10, ge=1, le=100),
     offset: int | None = Query(None, ge=0),
 ):
-    """
-    Get satellite information by its name.
-
-    @param satelite_name: The name of the satellite for which to retrieve information.
-    @param limit: Maximum number of results to return.
-    @param offset: Number of results to skip from the beginning.
-    @return: A dictionary containing the status code and satellite information, or an error message.
-    """
     try:
-        async with httpx.AsyncClient() as client:
-            satelite_info = await client.get(
-                f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?search={satelite_name}",
-                headers=HEADERS["DB"]
-            )
-            satelite_info.raise_for_status()
-            satelites = satelite_info.json()
-            satelites.sort(
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="satellite_search",
+            params={"search": satelite_name},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_METADATA"],
+            source="DB",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?search={p['search']}",
+        )
+        if isinstance(data, list):
+            data.sort(
                 key=lambda s: s.get("name", "").lower() != satelite_name.lower()
             )
-            satelites = paginate(satelites, limit, offset)
-            return Response(
-                content=json.dumps(satelites),
-                status_code=satelite_info.status_code,
-                media_type="application/json"
-            )
-            
-    except HTTPError as http_err:
-        return {
-            "error": f"{http_err}", 
-            "status_code": satelite_info.status_code
-            }
+            data = paginate(data, limit, offset)
+        return build_response(data, source, cache_age)
     except Exception as e:
-        return {"error": str(e), "status_code": 500}
+        return build_response({"error": str(e)}, "error", 0, 500)
+
 
 @app.get("/observations/{satelite_id}")
 async def get_observations_by_satelite_id(
@@ -145,65 +128,35 @@ async def get_observations_by_satelite_id(
     limit: int | None = Query(10, ge=1, le=100),
     offset: int | None = Query(None, ge=0),
 ):
-    """
-    Get observation data for a specific satellite by its ID.
-
-    @param satelite_id: The ID of the satellite for which to retrieve observation data.
-    @param limit: Maximum number of results to return.
-    @param offset: Number of results to skip from the beginning.
-    @return: A dictionary containing the status code and observation data, or an error message.
-    """
     try:
-        async with httpx.AsyncClient() as client:
-            observations_info = await client.get(
-                f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?sat_id={satelite_id}",
-                headers=HEADERS["NETWORK"]
-            )
-            observations_info.raise_for_status()
-            observations = observations_info.json()
-            observations = paginate(observations, limit, offset)
-            return Response(
-                content=json.dumps(observations),
-                status_code=observations_info.status_code,
-                media_type="application/json"
-            )
-    
-    except HTTPError as http_err:
-        return {
-            "error": f"{http_err}", 
-            "status_code": observations_info.status_code
-            }
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="observations",
+            params={"sat_id": satelite_id},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_OBSERVATIONS"],
+            source="NETWORK",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?sat_id={p['sat_id']}",
+        )
+        if isinstance(data, list):
+            data = paginate(data, limit, offset)
+        return build_response(data, source, cache_age)
     except Exception as e:
-        return {"error": str(e), "status_code": 500}
+        return build_response({"error": str(e)}, "error", 0, 500)
+
 
 @app.get("/observations/id/{id}")
 async def get_observations_by_id(id: int):
-    """
-    Get observation data for a specific observation by its ID.
-
-    @param id: The ID of the observation for which to retrieve data.
-    @return: A dictionary containing the status code and observation data, or an error message.
-    """
     try:
-        async with httpx.AsyncClient() as client:
-            observations_info = await client.get(
-                f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/{id}/",
-                headers=HEADERS["NETWORK"]
-            )
-            observations_info.raise_for_status()
-            return Response(
-                content=observations_info.content,
-                status_code=observations_info.status_code,
-                media_type="application/json"
-            )
-    
-    except HTTPError as http_err:
-        return {
-            "error": f"{http_err}", 
-            "status_code": observations_info.status_code
-            }
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="observation_by_id",
+            params={"id": id},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_OBSERVATIONS"],
+            source="NETWORK",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/{p['id']}/",
+        )
+        return build_response(data, source, cache_age)
     except Exception as e:
-        return {"error": str(e), "status_code": 500}
+        return build_response({"error": str(e)}, "error", 0, 500)
+
 
 @app.get("/telemetry/{satelite_id}")
 @async_lru_cache(maxsize=128)
@@ -212,39 +165,25 @@ async def get_telemetry_by_satelite_id(
     limit: int | None = Query(10, ge=1, le=100),
     offset: int | None = Query(None, ge=0),
 ):
-    """
-    .. TODO:: Try and fixed 
-
-    Get telemetry data for a specific satellite by its ID.
-    
-    @param satelite_id: The ID of the satellite for which to retrieve telemetry data.
-    @param limit: Maximum number of results to return.
-    @param offset: Number of results to skip from the beginning.
-    @return: A dictionary containing the status code and telemetry data, or an error message.
-    """
     try:
-        async with httpx.AsyncClient() as client:
-            telemetry_info = await client.get(
-                f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/telemetry/?satellite={satelite_id}",
-                headers=HEADERS["DB"]
-            )
-            telemetry_info.raise_for_status()
-            telemetry = telemetry_info.json()
-            telemetry = paginate(telemetry, limit, offset)
-            return Response(
-                content=json.dumps(telemetry),
-                status_code=telemetry_info.status_code,
-                media_type="application/json"
-            )
-    
-    except HTTPError as http_err:
-        return {
-            "error": f"{http_err}", 
-            "status_code": telemetry_info.status_code
-            }
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="telemetry",
+            params={"satellite": satelite_id},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_TELEMETRY"],
+            source="DB",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/telemetry/?satellite={p['satellite']}",
+        )
+        if isinstance(data, list):
+            data = paginate(data, limit, offset)
+        return build_response(data, source, cache_age)
     except Exception as e:
-        return {"error": str(e), "status_code": 500}
+        return build_response({"error": str(e)}, "error", 0, 500)
+
+
+@app.get("/satellites/monitored")
+async def get_monitored_satellites():
+    return build_response(SATELLITES_TO_MONITOR, "config", 0)
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host=SERVER_CONFIG['HOST'], port=int(SERVER_CONFIG['PORT']))
-
