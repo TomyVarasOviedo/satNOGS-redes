@@ -31,11 +31,11 @@ Python 3.11 + FastAPI, gestionado con `uv`. Corre desde `backend/`: `uv run uvic
 | `utils/cache.py` | Caché en archivos JSON con TTL por entrada y escritura atómica | Existente |
 | `services/satnogs.py` | Único punto de acceso a SatNOGS: `fetch_with_cache` (caché → retry con backoff → circuit breaker → stale) | Existente |
 | `services/refresher.py`, `scripts/prefetch.py` | Refresco en background y precarga de caché para demos sin conexión | Existente |
-| `services/orbits.py` | Clasificación orbital, propagación SGP4 (skyfield), ground track, búsqueda de pases | A construir |
-| `services/doppler.py` | Curva de frecuencia a sintonizar a lo largo de un pase | A construir |
-| `services/linkbudget.py` | Distancia oblicua, FSL, CNR y margen | A construir |
-| `services/validation.py` | Pases predichos frente a observaciones reales | A construir |
-| `notebooks/analisis.ipynb` | Gráficos del documento y la demo | A construir |
+| `services/orbits.py` | Clasificación orbital, propagación SGP4 (skyfield), ground track, búsqueda de pases | PR #2 |
+| `services/doppler.py` | Curva de frecuencia a sintonizar a lo largo de un pase | PR #3 |
+| `services/linkbudget.py` | Distancia oblicua, FSL, CNR, Eb/N0 y margen | PR #3 |
+| `services/validation.py` | Pases predichos frente a observaciones reales | PR #4 |
+| `notebooks/analisis.ipynb` | Gráficos del documento y la demo (`uv sync --group notebook`) | PR #4 |
 
 Endpoints:
 
@@ -45,11 +45,12 @@ Endpoints:
 | `GET /observations/{sat_id}` · `GET /observations/id/{id}` | Observaciones de SatNOGS Network | Existente |
 | `GET /telemetry/{norad_id}` | Telemetría de SatNOGS DB (requiere token) | Existente |
 | `GET /satellites/monitored` | Lista configurada | Existente |
-| `GET /orbits/classify` | Período, altura y tipo (LEO/MEO/GEO/HEO) | A construir |
-| `GET /predictions/passes` | AOS/LOS, elevación máxima, acimuts, duración y margen de enlace | A construir |
-| `GET /predictions/doppler` | Curva `f(t)` de un pase y corrimiento máximo | A construir |
-| `GET /linkbudget` | FSL, distancia, CNR y margen con parámetros editables | A construir |
-| `GET /validation/satellite` | Error de predicción contra observaciones reales | A construir |
+| `GET /orbits/classify` | Período, altura y tipo (LEO/MEO/GEO/HEO) | PR #2 |
+| `GET /predictions/passes` | AOS/LOS, elevación máxima, acimuts, duración (PR #2) y margen de enlace (PR #3) | PR #2 + #3 |
+| `GET /predictions/groundtrack` | Punto subsatelital y geometría respecto de la estación | PR #2 |
+| `GET /predictions/doppler` | Curva `f(t)` de un pase, corrimiento máximo y margen por punto | PR #3 |
+| `GET /linkbudget` | FSL, distancia, CNR y margen con parámetros editables | PR #3 |
+| `GET /validation/satellite` | Error de predicción contra observaciones reales | PR #4 |
 
 Cada respuesta lleva los headers `X-Source` (`live`/`cache`/`stale`) y `X-Cache-Age`. Los endpoints nuevos usan `fetch_with_cache` y `build_response` igual que los existentes.
 
@@ -73,9 +74,19 @@ R = 6371 km, μ = 398 600,4418 km³/s², c = 299 792 458 m/s.
 - **Doppler:** `Δf(t) = −f₀·v_r(t)/c`, con v_r positiva cuando el satélite se aleja. En LEO/UHF da ≈ ±10 kHz.
 - **FSL (dB):** `20·log₁₀(d_km) + 20·log₁₀(f_MHz) + 32,44`. Casos de prueba: 437 MHz a 1000 km da ≈ 145 dB; a 36 000 km, ≈ 176 dB.
 - **CNR (dB):** `EIRP − FSL + G_r + 228,6 − 10·log₁₀(T) − 10·log₁₀(B)`. EIRP va en dBW (dBm = dBW + 30). También `Eb/N₀ = CNR + 10·log₁₀(B/R_b)`.
-- **Margen:** CNR menos el umbral de decodificación del modo y baud rate. Documentar la fuente de cada umbral.
-- **Pases:** se muestrea cada 30–60 s con una máscara de elevación de 10° por defecto. El cruce ascendente es AOS y el descendente LOS.
-- **Validación:** para cada observación real se predice el pase con **el TLE embebido en esa observación** (`tle0/1/2`) y se mide el error en AOS y LOS (s), en elevación máxima (°) y en Doppler (Hz, contra `transmitter_downlink_drift` y `observation_frequency`).
+- **Margen:** Eb/N0 menos el umbral del modo, para BER 10⁻⁵ en AWGN (Sklar, *Digital Communications*, 2.ª ed., §4.7–4.8). Coherentes BPSK/QPSK/OQPSK/MSK/GMSK: 9,6 dB. FSK/GFSK/AFSK no coherente: 13,4 dB. CW, FM, SSB y LoRa no tienen umbral. B = tasa de símbolos.
+- **Pases:** AOS/LOS son los cruces exactos de la máscara de elevación (skyfield `find_events`, 10° por defecto). No se muestrea cada 30–60 s. Un pase cortado por la ventana se recorta y lleva `aos_clipped`/`los_clipped`; así se cubren el pase en curso y los GEO.
+- **Validación:** cada observación real se predice con **el TLE embebido en esa observación** (`tle0/1/2`), desde su propia estación. La elevación máxima y los acimuts se comparan dentro de la ventana observada. AOS y LOS se comparan contra el pase completo a 0°, así que ese error incluye el recorte que hace el scheduler. El Doppler no se puede validar con SatNOGS (ver la sección siguiente).
+
+## Lo que hay que saber de los datos de SatNOGS (verificado)
+
+- **`db/satellites/?search=` se ignora:** devuelve el catálogo entero, unos 2800 satélites. Por eso el backend cachea el catálogo y filtra por `name`/`names`.
+- **Filtros de la DB:** se filtra por `?sat_id=` o `?norad_cat_id=`. Los filtros `satellite__…` se ignoran.
+- **`transmitter_downlink_drift` no es Doppler:** es la deriva del oscilador del transmisor en ppb. Se cumple `observation_frequency = downlink_low · (1 + drift/10⁹)`. SatNOGS no guarda el Doppler medido de cada observación.
+- **`start`/`end`/`rise_azimuth`/`set_azimuth`/`max_altitude`:** describen la ventana que agendó el scheduler. Esa ventana sale del SGP4 de SatNOGS y suele quedar recortada por el horizonte de la estación. Los ángulos vienen redondeados a grados enteros, por eso el error de validación ronda ±0,5°.
+- **Nombres de modo con sufijo de protocolo:** por ejemplo `GMSK USP`, `FSK AX.100 Mode 5` o `GFSK/BPSK`. Se normalizan con `linkbudget.base_mode()`.
+- **`network/observations/`:** filtra con `?sat_id=&status=good&start=&end=`, todo en ISO UTC. Pagina con un cursor en el header `Link: rel="next"`, de a 25 y empezando por las más recientes. `fetch_with_cache(max_pages=N)` sigue ese cursor.
+- **Nombres de los archivos de caché:** cambian los caracteres que Windows no acepta, como el `:` de las fechas ISO, por `-`.
 
 ## Fuentes de datos
 
@@ -85,5 +96,14 @@ R = 6371 km, μ = 398 600,4418 km³/s², c = 299 792 458 m/s.
 ## Estado y ramas
 
 - `main`: documentación.
-- `backend`: el backend FastAPI con resiliencia (Fase 0 hecha). Las minutas de la Fase 0 y `docs/Redes_Satelitales_Resumen.md` viven ahí hasta que se mergee a `main`.
+- `backend`: el backend FastAPI. Fase 0 (resiliencia, PR #1) mergeada. Las minutas de la Fase 0 y `docs/Redes_Satelitales_Resumen.md` viven ahí hasta que se mergee a `main`.
+- PRs apilados sobre `backend`, a mergear en orden: #2 órbitas → #3 Doppler y enlace → #4 validación y notebook. Al mergear uno, el siguiente se rebasa a `backend`.
 - `frontend`: scaffold de Vite sin usar. **Fuera del alcance** del prototipo según el documento del TFI.
+
+## Ajustes pendientes en el documento del TFI (surgieron del código)
+
+- **§4.5:** sacar la métrica "error de frecuencia Doppler". SatNOGS no guarda el Doppler medido. El Doppler se valida con física: forma de la curva, cruce por el nominal en el TCA y magnitud ≈ ±10 kHz.
+- **§4.8:** AOS/LOS no se muestrean, se calculan exactos. La limitación por el paso de muestreo ya no aplica.
+- **§4.5 y §9:** aclarar que coincidir con `start`/`end` de SatNOGS valida la implementación (el mismo SGP4), no la órbita real. La elevación máxima y los acimuts son la comparación útil, con redondeo de ±0,5°.
+- **§3.7:** los umbrales y su fuente ya están documentados (arriba). El margen es optimista: EIRP 0 dBW por defecto y sin pérdidas extra.
+- **§7:** la ISS es LEO porque se usa el límite habitual de < 2000 km, no el rango de 640–1600 km de la cátedra.
