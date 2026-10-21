@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from functools import wraps
+from urllib.parse import urlencode
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -43,26 +43,16 @@ def paginate(data, limit: int | None, offset: int | None):
     return data
 
 
-def async_lru_cache(maxsize: int = 128):
-    def decorator(func):
-        cache = {}
-        order = []
+def search_catalog(catalog: list, term: str) -> list:
+    """SatNOGS DB ignores ?search=, so the full catalog is cached and filtered here."""
+    term = term.strip().lower()
 
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            key = args + tuple(sorted(kwargs.items()))
-            if key not in cache:
-                if len(order) >= maxsize:
-                    oldest = order.pop(0)
-                    cache.pop(oldest, None)
-                cache[key] = await func(*args, **kwargs)
-                order.append(key)
-            else:
-                order.remove(key)
-                order.append(key)
-            return cache[key]
-        return wrapper
-    return decorator
+    def all_names(satellite: dict) -> list[str]:
+        names = [satellite.get("name") or ""] + (satellite.get("names") or "").split(",")
+        return [n.strip().lower() for n in names if n.strip()]
+
+    matches = [s for s in catalog if any(term in n for n in all_names(s))]
+    return sorted(matches, key=lambda s: term not in all_names(s))
 
 
 def build_response(data: any, source: str, cache_age: int, status_code: int = 200) -> Response:
@@ -90,7 +80,7 @@ async def get_satelite_by_id(satelite_id: str):
             params={"sat_id": satelite_id},
             ttl=RESILIENCE_CONFIG["DEFAULT_TTL_METADATA"],
             source="DB",
-            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?sat_id={p['sat_id']}",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?{urlencode(p)}",
         )
         return build_response(data, source, cache_age)
     except Exception as e:
@@ -98,26 +88,21 @@ async def get_satelite_by_id(satelite_id: str):
 
 
 @app.get("/satelites/{satelite_name}")
-@async_lru_cache(maxsize=128)
 async def get_satelite_by_name(
     satelite_name: str,
     limit: int | None = Query(10, ge=1, le=100),
     offset: int | None = Query(None, ge=0),
 ):
     try:
-        data, source, cache_age = await fetch_with_cache(
-            endpoint="satellite_search",
-            params={"search": satelite_name},
+        catalog, source, cache_age = await fetch_with_cache(
+            endpoint="satellite_catalog",
+            params={},
             ttl=RESILIENCE_CONFIG["DEFAULT_TTL_METADATA"],
             source="DB",
-            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?search={p['search']}",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/",
         )
-        if isinstance(data, list):
-            data.sort(
-                key=lambda s: s.get("name", "").lower() != satelite_name.lower()
-            )
-            data = paginate(data, limit, offset)
-        return build_response(data, source, cache_age)
+        matches = search_catalog(catalog, satelite_name)
+        return build_response(paginate(matches, limit, offset), source, cache_age)
     except Exception as e:
         return build_response({"error": str(e)}, "error", 0, 500)
 
@@ -134,7 +119,7 @@ async def get_observations_by_satelite_id(
             params={"sat_id": satelite_id},
             ttl=RESILIENCE_CONFIG["DEFAULT_TTL_OBSERVATIONS"],
             source="NETWORK",
-            url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?sat_id={p['sat_id']}",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?{urlencode(p)}",
         )
         if isinstance(data, list):
             data = paginate(data, limit, offset)
@@ -159,7 +144,6 @@ async def get_observations_by_id(id: int):
 
 
 @app.get("/telemetry/{satelite_id}")
-@async_lru_cache(maxsize=128)
 async def get_telemetry_by_satelite_id(
     satelite_id: int,
     limit: int | None = Query(10, ge=1, le=100),
@@ -171,7 +155,7 @@ async def get_telemetry_by_satelite_id(
             params={"satellite": satelite_id},
             ttl=RESILIENCE_CONFIG["DEFAULT_TTL_TELEMETRY"],
             source="DB",
-            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/telemetry/?satellite={p['satellite']}",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/telemetry/?{urlencode(p)}",
         )
         if isinstance(data, list):
             data = paginate(data, limit, offset)

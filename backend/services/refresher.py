@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Optional
 from utils.config import RESILIENCE_CONFIG, SATELLITES_TO_MONITOR, SATNOGS_CONFIG
-from services.satnogs import fetch_with_cache
+from services.satnogs import fetch_with_cache, headers_for
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,10 +72,7 @@ class Refresher:
             async with httpx.AsyncClient(timeout=RESILIENCE_CONFIG["REQUEST_TIMEOUT"]) as client:
                 response = await client.get(
                     f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/satellites/?norad_cat_id={norad_id}",
-                    headers={
-                        "Accept": "application/json",
-                        "Authorization": f"TOKEN {SATNOGS_CONFIG['DB_TOKEN_SATNOGS']}",
-                    },
+                    headers=headers_for("DB"),
                 )
                 response.raise_for_status()
                 data = response.json()
