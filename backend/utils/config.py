@@ -38,6 +38,13 @@ REFERENCE_STATION = {
     "min_elevation_deg": float(os.getenv("STATION_MIN_ELEVATION_DEG", "10")),
 }
 
+LINK_DEFAULTS = {
+    "eirp_dbw": float(os.getenv("SAT_EIRP_DBW", "0")),
+    "gain_dbi": float(os.getenv("STATION_GAIN_DBI", "12")),
+    "noise_temp_k": float(os.getenv("STATION_NOISE_TEMP_K", "500")),
+    "losses_db": float(os.getenv("LINK_LOSSES_DB", "0")),
+}
+
 SATELLITES_TO_MONITOR = [
     {"norad_id": 25544, "name": "ISS"},
     {"norad_id": 20442, "name": "LUSAT"},
