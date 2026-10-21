@@ -8,8 +8,8 @@ Sistema de monitoreo satelital que funciona como un "Dashboard de Gestión de Re
 
 ## Tecnologías
 
-- **Backend:** Python
-- **Frontend:** ReactJS
+- **Backend:** Python + FastAPI, skyfield/sgp4 para propagación orbital
+- **Demostración:** interfaz `/docs` de FastAPI y notebook Jupyter (el panel web queda como mockup)
 
 ## Estructura del Proyecto
 
@@ -19,7 +19,7 @@ Sistema de monitoreo satelital que funciona como un "Dashboard de Gestión de Re
  ┃ ┗ 📜 (Lógica del servidor Python)
  ┣ 📂 frontend/
  ┃ ┗ 📜 (Aplicación ReactJS)
- ┗ 📜 AGENTES.md (Documento de definición arquitectónica)
+ ┗ 📜 AGENTS.md (contexto del proyecto para humanos y agentes)
 ```
 
 ## Buenas Prácticas
@@ -32,4 +32,4 @@ Sistema de monitoreo satelital que funciona como un "Dashboard de Gestión de Re
 
 ## Estado
 
-Proyecto preliminar en etapa de desarrollo. La definición de variables, esquemas de datos y endpoints de SatNOGS se determinará en una fase de refinamiento técnico posterior.
+Fase 0 (proxy de SatNOGS con caché y resiliencia) hecha en la rama `backend`. Alcance, arquitectura y endpoints del prototipo en [`AGENTS.md`](AGENTS.md).
