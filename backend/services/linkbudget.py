@@ -1,22 +1,33 @@
 import math
+import re
 
 from services.orbits import EARTH_RADIUS_KM
 
 BOLTZMANN_DB = -228.6
 
 # Eb/N0 for BER 1e-5 over AWGN (Sklar, Digital Communications, 2nd ed., §4.7–4.8).
-# Coherent BPSK/QPSK 9.6 dB; MSK/GMSK ≈ coherent BPSK; non-coherent binary FSK 13.4 dB
-# (also used for GFSK and AFSK). Analog modes (CW, FM, SSB) have no digital threshold.
+# Coherent BPSK/QPSK/OQPSK 9.6 dB; MSK/GMSK ≈ coherent BPSK; non-coherent binary FSK 13.4 dB,
+# also used for GFSK and AFSK (AFSK is audio tones over FM, so this is a simplification).
+# Analog modes (CW, FM, SSB) and LoRa have no threshold here.
 REQUIRED_EBN0_DB = {
     "BPSK": 9.6,
     "QPSK": 9.6,
+    "OQPSK": 9.6,
     "MSK": 9.6,
     "GMSK": 9.6,
     "FSK": 13.4,
     "GFSK": 13.4,
     "AFSK": 13.4,
 }
-BITS_PER_SYMBOL = {"QPSK": 2}
+BITS_PER_SYMBOL = {"QPSK": 2, "OQPSK": 2}
+
+
+def base_mode(mode: str | None) -> str | None:
+    """SatNOGS names modes with protocol suffixes ("GMSK USP", "FSK AX.100 Mode 5", "GFSK/BPSK")."""
+    for token in re.split(r"[\s/]+", (mode or "").upper()):
+        if token in REQUIRED_EBN0_DB:
+            return token
+    return None
 
 
 def slant_range_km(elevation_deg: float, altitude_km: float) -> float:
@@ -50,7 +61,7 @@ def link_budget(
 
     Omits atmospheric, polarization and pointing losses unless given as losses_db, so the margin is optimistic.
     """
-    mode_key = (mode or "").upper()
+    mode_key = base_mode(mode)
     fsl = fsl_db(distance_km, freq_hz / 1e6)
     budget = {
         "distance_km": distance_km,

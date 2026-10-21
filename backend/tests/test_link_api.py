@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -57,7 +58,9 @@ def test_doppler_for_the_next_pass_uses_the_satellite_downlink(lusat):
 def test_doppler_frequency_override_skips_the_transmitter(lusat):
     response = client.get("/predictions/doppler", params={**LUSAT_PASS_QUERY, "freq_hz": 145.8e6})
 
+    assert response.status_code == 200
     assert response.json()["f0_hz"] == 145.8e6
+    assert not any(r.url.path.endswith("/transmitters/") for r in lusat.requests)
 
 
 def test_passes_carry_the_link_margin_at_tca_and_at_the_mask(lusat):
@@ -68,10 +71,28 @@ def test_passes_carry_the_link_margin_at_tca_and_at_the_mask(lusat):
     assert link["margin_at_tca_db"] > link["margin_at_aos_db"]
 
 
-def test_passes_still_work_when_transmitters_are_unavailable(fake_satnogs):
-    fake_satnogs.routes = {"/tle/": LUSAT_TLE_RESPONSE, "/transmitters/": []}
+def test_passes_still_work_when_transmitters_are_unavailable(fake_satnogs, monkeypatch):
+    fake_satnogs.routes = {"/tle/": LUSAT_TLE_RESPONSE}
+    real_handler = fake_satnogs.handler
+
+    def transmitters_down(request):
+        if request.url.path.endswith("/transmitters/"):
+            fake_satnogs.requests.append(request)
+            return httpx.Response(503)
+        return real_handler(request)
+
+    monkeypatch.setattr(fake_satnogs, "handler", transmitters_down)
 
     response = client.get("/predictions/passes", params={**LUSAT_PASS_QUERY, "days": 1 / 24})
 
     assert response.status_code == 200
     assert response.json()["passes"][0]["link"] is None
+
+
+def test_doppler_points_carry_the_link_margin_peaking_at_tca(lusat):
+    body = client.get("/predictions/doppler", params={**LUSAT_PASS_QUERY, "step": 30}).json()
+
+    margins = [p["margin_db"] for p in body["points"]]
+    best = body["points"][margins.index(max(margins))]
+    assert abs(best["elevation_deg"] - body["pass"]["max_elevation_deg"]) < 2
+    assert margins[0] < max(margins)

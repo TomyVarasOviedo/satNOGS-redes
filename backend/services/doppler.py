@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from services.linkbudget import REQUIRED_EBN0_DB
+from services.linkbudget import base_mode
 from services.orbits import Station, ground_track
 
 SPEED_OF_LIGHT_M_S = 299_792_458
@@ -23,7 +23,7 @@ def pick_transmitter(transmitters: list[dict], uuid: str | None = None) -> dict 
     if uuid:
         return next((t for t in downlinks if t.get("uuid") == uuid), None)
     alive = [t for t in downlinks if t.get("alive")]
-    digital = [t for t in alive if (t.get("mode") or "").upper() in REQUIRED_EBN0_DB and (t.get("baud") or 0) > 0]
+    digital = [t for t in alive if base_mode(t.get("mode")) and (t.get("baud") or 0) > 0]
     return (digital or alive or [None])[0]
 
 

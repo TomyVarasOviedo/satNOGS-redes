@@ -54,3 +54,10 @@ def test_downlink_frequency_applies_the_oscillator_drift_in_ppb():
 
     assert downlink_frequency_hz(cw) == pytest.approx(437_125_000 * (1 + 3088e-9))
     assert downlink_frequency_hz(LUSAT_TRANSMITTERS[0]) == 437_150_000
+
+
+def test_pick_transmitter_recognises_suffixed_digital_modes():
+    beacon = {"uuid": "cw", "alive": True, "downlink_low": 437e6, "mode": "CW", "baud": 0}
+    data = {"uuid": "gmsk", "alive": True, "downlink_low": 437.5e6, "mode": "GMSK USP", "baud": 9600}
+
+    assert pick_transmitter([beacon, data])["uuid"] == "gmsk"

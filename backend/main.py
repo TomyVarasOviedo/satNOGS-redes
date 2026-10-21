@@ -357,6 +357,9 @@ async def predict_doppler(
             freq_hz,
             step,
         )
+        baud, mode = (transmitter.get("baud"), transmitter.get("mode")) if transmitter else (None, None)
+        for point in curve["points"]:
+            point["margin_db"] = linkbudget.link_budget(point["range_km"], freq_hz, baud=baud, mode=mode, **LINK_DEFAULTS)["margin_db"]
         return build_response({"sat_id": sat_id, "pass": satellite_pass, "transmitter": transmitter, **curve}, source, cache_age)
     except Exception as e:
         return build_response({"error": str(e)}, "error", 0, 500)

@@ -1,7 +1,10 @@
+import math
+
 import pytest
 
 from services.linkbudget import (
     REQUIRED_EBN0_DB,
+    base_mode,
     cnr_db,
     fsl_db,
     link_budget,
@@ -46,3 +49,22 @@ def test_modes_without_a_digital_threshold_have_no_margin():
 
     assert budget["margin_db"] is None and budget["decodable"] is None
     assert "fsl_db" in budget
+
+
+@pytest.mark.parametrize(
+    "satnogs_mode, expected",
+    [("GMSK USP", "GMSK"), ("FSK AX.100 Mode 5", "FSK"), ("BPSK PMT-A3", "BPSK"), ("GFSK/BPSK", "GFSK"), ("OQPSK", "OQPSK"), ("LoRa", None), (None, None)],
+)
+def test_satnogs_mode_names_map_to_their_base_modulation(satnogs_mode, expected):
+    assert base_mode(satnogs_mode) == expected
+
+
+def test_suffixed_modes_get_a_margin():
+    assert link_budget(1000, 437e6, 0, 12, 500, 9600, "GMSK USP")["required_ebn0_db"] == 9.6
+
+
+def test_qpsk_carries_two_bits_per_symbol():
+    bpsk = link_budget(1000, 437e6, 0, 12, 500, 1200, "BPSK")
+    qpsk = link_budget(1000, 437e6, 0, 12, 500, 1200, "QPSK")
+
+    assert bpsk["ebn0_db"] - qpsk["ebn0_db"] == pytest.approx(10 * math.log10(2))
