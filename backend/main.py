@@ -10,7 +10,7 @@ import uvicorn
 from utils.config import SATNOGS_CONFIG, SERVER_CONFIG, RESILIENCE_CONFIG, SATELLITES_TO_MONITOR, REFERENCE_STATION, LINK_DEFAULTS
 from services.satnogs import fetch_with_cache
 from services.refresher import refresher
-from services import doppler, linkbudget, orbits
+from services import doppler, linkbudget, orbits, validation
 
 
 @asynccontextmanager
@@ -385,6 +385,55 @@ async def calculate_link_budget(
         distance_km = linkbudget.slant_range_km(elevation_deg, altitude_km)
     budget = linkbudget.link_budget(distance_km, freq_hz, eirp_dbw, gain_dbi, noise_k, baud, mode, losses_db)
     return build_response(budget, "computed", 0)
+
+
+VALIDATION_NOTES = [
+    "Each observation is predicted with the TLE embedded in it, at its own station.",
+    "Elevation and azimuths are compared inside the observation's scheduled window; "
+    "SatNOGS rounds them to whole degrees.",
+    "error_start_s/error_end_s compare against the full pass at 0°: they include the station "
+    "scheduler cutting the window, not only prediction error.",
+    "SatNOGS start/end come from its own SGP4 prediction, so agreement validates the implementation, "
+    "not the orbit itself.",
+    "SatNOGS stores no measured Doppler: observation_frequency − downlink_low is the transmitter's "
+    "oscillator drift (ppb). The predicted Doppler is reported, not scored.",
+]
+
+
+@app.get("/validation/satellite")
+async def validate_satellite(
+    sat_id: str,
+    days: float = Query(7, gt=0, le=30),
+    end: datetime | None = Query(None),
+):
+    """Predicted passes vs. the satellite's most recent good SatNOGS observations in the period."""
+    try:
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="observations_good",
+            params={"sat_id": sat_id, "status": "good"},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_OBSERVATIONS"],
+            source="NETWORK",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?{urlencode(p)}",
+        )
+        end = utc(end)
+        begin = end - timedelta(days=days)
+        in_period = [
+            o for o in (data if isinstance(data, list) else [])
+            if o.get("start") and begin <= datetime.fromisoformat(o["start"].replace("Z", "+00:00")) <= end
+        ]
+        report = validation.validate_observations(in_period)
+        return build_response(
+            {
+                "sat_id": sat_id,
+                "period": {"start": begin.strftime("%Y-%m-%dT%H:%M:%SZ"), "end": end.strftime("%Y-%m-%dT%H:%M:%SZ")},
+                **report,
+                "notes": VALIDATION_NOTES,
+            },
+            source,
+            cache_age,
+        )
+    except Exception as e:
+        return build_response({"error": str(e)}, "error", 0, 500)
 
 
 @app.get("/satellites/monitored")
