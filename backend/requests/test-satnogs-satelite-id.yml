@@ -1,0 +1,14 @@
+name: test-satnogs-satelite-id
+method: GET
+url: $BASE_URL_DB/api/satellites/
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+  Authorization: TOKEN $TOKEN_DB
+params:
+  - name: sat_id
+    value: ZDPY-4221-9426-0630-5344
+body: ''
+body_type: none

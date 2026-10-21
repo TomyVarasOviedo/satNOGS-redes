@@ -1,0 +1,11 @@
+name: test-api-local-observations-id
+method: GET
+url: http://localhost:8000/observations/ZDPY-4221-9426-0630-5344
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+  Authorization: TOKEN $TOKEN_NETWORK
+body: ''
+body_type: none

@@ -1,0 +1,34 @@
+"""Real TLEs and one real SatNOGS observation, captured on 2026-10-21 from db/network.satnogs.org."""
+
+ISS = (
+    "1 25544U 98067A   26294.49952657  .00009087  00000-0  17299-3 0  9995",
+    "2 25544  51.6330  35.0282 0006826 292.5374  67.4891 15.48973463591330",
+)
+
+GOES_16 = (
+    "1 41866U 16071A   26294.47551682 -.00000084  00000-0  00000+0 0  9993",
+    "2 41866   0.6473  83.7559 0002305 153.5227 219.1790  1.00272503 36377",
+)
+
+LUSAT_OBSERVATION = {
+    "id": 15224792,
+    "start": "2026-10-17T02:14:52Z",
+    "end": "2026-10-17T02:29:38Z",
+    "station_lat": 13.1458,
+    "station_lng": 77.5417,
+    "station_alt": 900,
+    "max_altitude": 78.0,
+    "rise_azimuth": 10.0,
+    "set_azimuth": 196.0,
+    "tle1": "1 20442U 90005G   26289.64795207  .00000082  00000-0  45885-4 0  9997",
+    "tle2": "2 20442  98.8785 314.7659 0011105 205.1129 154.9516 14.34150762919803",
+}
+
+LUSAT_TRANSMITTERS = [
+    {"uuid": "Z2ViCYEPTmBkKPkMKFgnJg", "description": "BPSK 1k2 Transceiver", "alive": True, "type": "Transceiver",
+     "downlink_low": 437150000, "downlink_drift": None, "downlink_drifted": 437150000, "mode": "BPSK", "baud": 1200.0},
+    {"uuid": "ZAKErADdWKpMiDjvKKhmmB", "description": "Mode U TLM", "alive": True, "type": "Transmitter",
+     "downlink_low": 437125000, "downlink_drift": 3088, "downlink_drifted": 437126350, "mode": "CW", "baud": 0.0},
+    {"uuid": "iQRkZ4BeNeTphSGEwtBztm", "description": "Carrier", "alive": True, "type": "Transmitter",
+     "downlink_low": 435078000, "downlink_drift": None, "downlink_drifted": 435078000, "mode": None, "baud": None},
+]

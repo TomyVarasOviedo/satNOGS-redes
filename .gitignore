@@ -1,7 +1,13 @@
-*/env/*
-*/__pycache__/*
-*/.venv/*
+__pycache__/
 *.pyc
-*/node_modules/*
-*/package.json
-*/package-lock.json 
+.venv/
+env/
+.pytest_cache/
+node_modules/
+.env
+*.env
+!.env.example
+
+# Noodle configutation files
+backend/requests/.timeline/*
+backend/requests/.environments/request.local.env
