@@ -5,9 +5,9 @@ load_dotenv()
 
 SATNOGS_CONFIG = {
     "NETWORK_TOKEN": os.getenv("NETWORK_TOKEN_SATNOGS"),
-    "NETWORK_URL": os.getenv("NETWORK_URL_SATNOGS"),
+    "NETWORK_URL": os.getenv("NETWORK_URL_SATNOGS", "https://network.satnogs.org/api"),
     "DB_TOKEN_SATNOGS": os.getenv("DB_TOKEN_SATNOGS"),
-    "DB_URL_SATNOGS": os.getenv("DB_URL_SATNOGS"),
+    "DB_URL_SATNOGS": os.getenv("DB_URL_SATNOGS", "https://db.satnogs.org/api"),
 }
 
 SERVER_CONFIG = {
@@ -30,9 +30,9 @@ RESILIENCE_CONFIG = {
 }
 
 SATELLITES_TO_MONITOR = [
-    {"norad_id": 25542, "name": "ISS"},
+    {"norad_id": 25544, "name": "ISS"},
     {"norad_id": 20442, "name": "LUSAT"},
-    {"norad_id": 40012, "name": "NOAA 18"},
-    {"norad_id": 43529, "name": "METEOR-M2"},
-    {"norad_id": 32784, "name": "FUNCUBE-1"},
+    {"norad_id": 28654, "name": "NOAA 18"},
+    {"norad_id": 40069, "name": "METEOR-M2"},
+    {"norad_id": 39444, "name": "FUNCUBE-1"},
 ]

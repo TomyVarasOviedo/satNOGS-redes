@@ -1,3 +1,4 @@
+import asyncio
 import time
 import httpx
 from typing import Any, Optional, Callable
@@ -17,15 +18,12 @@ class CircuitBreaker:
         self.last_failure_time: Optional[float] = None
         self.state = "closed"
 
-    def call(self, func: Callable, *args, **kwargs) -> Any:
-        if self.state == "open":
-            if time.time() - self.last_failure_time >= self.recovery_timeout:
-                self.state = "half-open"
-            else:
-                raise Exception("Circuit breaker is open")
+    async def call(self, func: Callable, *args, **kwargs) -> Any:
+        if self.is_open():
+            raise Exception("Circuit breaker is open")
 
         try:
-            result = func(*args, **kwargs)
+            result = await func(*args, **kwargs)
             self.on_success()
             return result
         except Exception as e:
@@ -43,6 +41,8 @@ class CircuitBreaker:
             self.state = "open"
 
     def is_open(self) -> bool:
+        if self.state == "open" and time.time() - self.last_failure_time >= self.recovery_timeout:
+            self.state = "half-open"
         return self.state == "open"
 
 
@@ -57,16 +57,18 @@ circuit_breakers = {
     ),
 }
 
-HEADERS = {
-    "DB": {
-        "Accept": "application/json",
-        "Authorization": f"TOKEN {SATNOGS_CONFIG['DB_TOKEN_SATNOGS']}",
-    },
-    "NETWORK": {
-        "Accept": "application/json",
-        "Authorization": f"TOKEN {SATNOGS_CONFIG['NETWORK_TOKEN']}",
-    },
+TOKEN_KEYS = {
+    "DB": "DB_TOKEN_SATNOGS",
+    "NETWORK": "NETWORK_TOKEN",
 }
+
+
+def headers_for(source: str) -> dict:
+    headers = {"Accept": "application/json"}
+    token = SATNOGS_CONFIG[TOKEN_KEYS[source]]
+    if token:
+        headers["Authorization"] = f"Token {token}"
+    return headers
 
 
 async def fetch_with_retry(
@@ -95,7 +97,7 @@ async def fetch_with_retry(
             last_exception = e
             if attempt < max_attempts - 1:
                 wait_time = min(backoff_factor * (2**attempt), backoff_max)
-                time.sleep(wait_time)
+                await asyncio.sleep(wait_time)
             continue
 
     raise last_exception
@@ -126,7 +128,7 @@ async def fetch_with_cache(
                 fetch_with_retry,
                 client,
                 url,
-                HEADERS[source],
+                headers_for(source),
                 source,
             )
             data = response.json()
