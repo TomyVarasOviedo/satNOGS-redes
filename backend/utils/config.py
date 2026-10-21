@@ -27,6 +27,15 @@ RESILIENCE_CONFIG = {
     "DEFAULT_TTL_METADATA": int(os.getenv("DEFAULT_TTL_METADATA", "86400")),
     "DEFAULT_TTL_OBSERVATIONS": int(os.getenv("DEFAULT_TTL_OBSERVATIONS", "300")),
     "DEFAULT_TTL_TELEMETRY": int(os.getenv("DEFAULT_TTL_TELEMETRY", "600")),
+    "DEFAULT_TTL_TLE": int(os.getenv("DEFAULT_TTL_TLE", "21600")),
+}
+
+REFERENCE_STATION = {
+    "name": os.getenv("STATION_NAME", "Universidad de Belgrano"),
+    "lat": float(os.getenv("STATION_LAT", "-34.5627")),
+    "lng": float(os.getenv("STATION_LNG", "-58.4566")),
+    "alt_m": float(os.getenv("STATION_ALT_M", "25")),
+    "min_elevation_deg": float(os.getenv("STATION_MIN_ELEVATION_DEG", "10")),
 }
 
 SATELLITES_TO_MONITOR = [
