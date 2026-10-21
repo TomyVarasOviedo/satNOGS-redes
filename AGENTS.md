@@ -31,11 +31,11 @@ Python 3.11 + FastAPI, gestionado con `uv`. Corre desde `backend/`: `uv run uvic
 | `utils/cache.py` | Caché en archivos JSON con TTL por entrada y escritura atómica | Existente |
 | `services/satnogs.py` | Único punto de acceso a SatNOGS: `fetch_with_cache` (caché → retry con backoff → circuit breaker → stale) | Existente |
 | `services/refresher.py`, `scripts/prefetch.py` | Refresco en background y precarga de caché para demos sin conexión | Existente |
-| `services/orbits.py` | Clasificación orbital, propagación SGP4 (skyfield), ground track, búsqueda de pases | PR #2 |
-| `services/doppler.py` | Curva de frecuencia a sintonizar a lo largo de un pase | PR #3 |
-| `services/linkbudget.py` | Distancia oblicua, FSL, CNR, Eb/N0 y margen | PR #3 |
-| `services/validation.py` | Pases predichos frente a observaciones reales | PR #4 |
-| `notebooks/analisis.ipynb` | Gráficos del documento y la demo (`uv sync --group notebook`) | PR #4 |
+| `services/orbits.py` | Clasificación orbital, propagación SGP4 (skyfield), ground track, búsqueda de pases | Hecho (PR #2) |
+| `services/doppler.py` | Curva de frecuencia a sintonizar a lo largo de un pase | Hecho (PR #3) |
+| `services/linkbudget.py` | Distancia oblicua, FSL, CNR, Eb/N0 y margen | Hecho (PR #3) |
+| `services/validation.py` | Pases predichos frente a observaciones reales | Hecho (PR #4) |
+| `notebooks/analisis.ipynb` | Gráficos del documento y la demo (`uv sync --group notebook`) | Hecho (PR #4) |
 
 Endpoints:
 
@@ -45,12 +45,12 @@ Endpoints:
 | `GET /observations/{sat_id}` · `GET /observations/id/{id}` | Observaciones de SatNOGS Network | Existente |
 | `GET /telemetry/{norad_id}` | Telemetría de SatNOGS DB (requiere token) | Existente |
 | `GET /satellites/monitored` | Lista configurada | Existente |
-| `GET /orbits/classify` | Período, altura y tipo (LEO/MEO/GEO/HEO) | PR #2 |
-| `GET /predictions/passes` | AOS/LOS, elevación máxima, acimuts, duración (PR #2) y margen de enlace (PR #3) | PR #2 + #3 |
-| `GET /predictions/groundtrack` | Punto subsatelital y geometría respecto de la estación | PR #2 |
-| `GET /predictions/doppler` | Curva `f(t)` de un pase, corrimiento máximo y margen por punto | PR #3 |
-| `GET /linkbudget` | FSL, distancia, CNR y margen con parámetros editables | PR #3 |
-| `GET /validation/satellite` | Error de predicción contra observaciones reales | PR #4 |
+| `GET /orbits/classify` | Período, altura y tipo (LEO/MEO/GEO/HEO) | Hecho (PR #2) |
+| `GET /predictions/passes` | AOS/LOS, elevación máxima, acimuts, duración (PR #2) y margen de enlace (PR #3) | Hecho (PR #2 y #3) |
+| `GET /predictions/groundtrack` | Punto subsatelital y geometría respecto de la estación | Hecho (PR #2) |
+| `GET /predictions/doppler` | Curva `f(t)` de un pase, corrimiento máximo y margen por punto | Hecho (PR #3) |
+| `GET /linkbudget` | FSL, distancia, CNR y margen con parámetros editables | Hecho (PR #3) |
+| `GET /validation/satellite` | Error de predicción contra observaciones reales | Hecho (PR #4) |
 
 Cada respuesta lleva los headers `X-Source` (`live`/`cache`/`stale`) y `X-Cache-Age`. Los endpoints nuevos usan `fetch_with_cache` y `build_response` igual que los existentes.
 
@@ -95,10 +95,10 @@ R = 6371 km, μ = 398 600,4418 km³/s², c = 299 792 458 m/s.
 
 ## Estado y ramas
 
-- `main`: documentación.
-- `backend`: el backend FastAPI. Fase 0 (resiliencia, PR #1) mergeada. Las minutas de la Fase 0 y `docs/Redes_Satelitales_Resumen.md` viven ahí hasta que se mergee a `main`.
-- PRs apilados sobre `backend`, a mergear en orden: #2 órbitas → #3 Doppler y enlace → #4 validación y notebook. Al mergear uno, el siguiente se rebasa a `backend`.
+- `main`: todo el proyecto. El prototipo está completo: PRs #1 a #4 mergeados en `backend` y `backend` mergeado en `main`. Las ramas nuevas salen de `main`.
+- `backend`: rama histórica del backend, ya incluida en `main`.
 - `frontend`: scaffold de Vite sin usar. **Fuera del alcance** del prototipo según el documento del TFI.
+- Demo: guion en `backend/README.md`. Con conexión, el mismo día de la demo, hay que volver a ejecutar `backend/notebooks/analisis.ipynb` y llamar a los endpoints que se vayan a mostrar, porque la caché de la validación se renueva por día.
 
 ## Ajustes pendientes en el documento del TFI (surgieron del código)
 

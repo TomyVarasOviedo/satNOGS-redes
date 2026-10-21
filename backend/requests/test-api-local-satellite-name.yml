@@ -1,0 +1,11 @@
+name: test-api-local-satellite-name
+method: GET
+url: http://localhost:8000/satelites/LUSAT
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+  Authorization: TOKEN $TOKEN_DB
+body: ''
+body_type: none

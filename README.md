@@ -32,4 +32,4 @@ Sistema de monitoreo satelital que funciona como un "Dashboard de Gestión de Re
 
 ## Estado
 
-Fase 0 (proxy de SatNOGS con caché y resiliencia) hecha en la rama `backend`. Alcance, arquitectura y endpoints del prototipo en [`AGENTS.md`](AGENTS.md).
+Prototipo completo: pases, Doppler, margen de enlace y validación contra SatNOGS. Cómo correrlo y guion de la demo en [`backend/README.md`](backend/README.md); alcance y arquitectura en [`AGENTS.md`](AGENTS.md).

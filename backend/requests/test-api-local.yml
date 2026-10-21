@@ -1,0 +1,10 @@
+name: test-api-local
+method: GET
+url: http://localhost:8000/satelite/ZDPY-4221-9426-0630-5344
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+body: ''
+body_type: none

@@ -1,0 +1,11 @@
+name: test-stanogs-telemetry
+method: GET
+url: $BASE_URL_DB/telemetry/ZDPY-4221-9426-0630-5344/
+timeout: 0
+followRedirects: true
+maxRedirects: 5
+headers:
+  Accept: application/json
+  Authorization: TOKEN $TOKEN_DB
+body: ''
+body_type: none

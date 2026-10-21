@@ -1,0 +1,10 @@
+lastRequest: test-api-local-observation-id
+test-satnogs-satelites-name:
+  request: params
+  response: body
+test-satnogs-satelite-id:
+  request: params
+  response: body
+test-api-local:
+  request: params
+  response: body
