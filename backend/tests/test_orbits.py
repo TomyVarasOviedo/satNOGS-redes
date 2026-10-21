@@ -42,6 +42,7 @@ def test_goes_16_is_geostationary():
         (20200, 0.01, "MEO"),
         (35786, 0.0002, "GEO"),
         (20000, 0.72, "HEO"),
+        (40000, 0.001, "beyond-GEO"),
     ],
 )
 def test_orbit_type_by_altitude_and_eccentricity(altitude_km, eccentricity, expected):
@@ -50,6 +51,10 @@ def test_orbit_type_by_altitude_and_eccentricity(altitude_km, eccentricity, expe
 
 def test_footprint_radius_matches_the_tfi_worked_example():
     assert footprint_radius_km(550, 10) == pytest.approx(1670, abs=10)
+
+
+def test_footprint_of_a_decayed_orbit_is_zero():
+    assert footprint_radius_km(-10, 10) == 0
 
 
 def test_predicted_pass_matches_a_real_satnogs_observation():
@@ -78,8 +83,32 @@ def test_passes_start_and_end_on_the_elevation_mask():
         assert start <= parse(p["aos"]) < parse(p["tca"]) < parse(p["los"]) <= start + timedelta(days=2)
         assert p["max_elevation_deg"] >= 10
         assert p["duration_s"] == pytest.approx((parse(p["los"]) - parse(p["aos"])).total_seconds(), abs=1)
-        track = ground_track(*ISS, parse(p["aos"]), parse(p["aos"]), 60, BUENOS_AIRES)
-        assert track[0]["elevation_deg"] == pytest.approx(10, abs=0.1)
+        if not p["aos_clipped"]:
+            track = ground_track(*ISS, parse(p["aos"]), parse(p["aos"]), 60, BUENOS_AIRES)
+            assert track[0]["elevation_deg"] == pytest.approx(10, abs=0.1)
+
+
+def test_a_geostationary_satellite_is_one_pass_spanning_the_whole_window():
+    start = datetime(2026, 10, 21, tzinfo=timezone.utc)
+
+    passes = find_passes(*GOES_16, BUENOS_AIRES, start, days=1, min_elevation_deg=10)
+
+    assert len(passes) == 1
+    p = passes[0]
+    assert (parse(p["aos"]), parse(p["los"])) == (start, start + timedelta(days=1))
+    assert p["aos_clipped"] and p["los_clipped"]
+    assert p["max_elevation_deg"] == pytest.approx(27.2, abs=0.5)
+
+
+def test_the_pass_in_progress_is_kept_and_marked_as_clipped():
+    day = datetime(2026, 10, 21, tzinfo=timezone.utc)
+    first = find_passes(*ISS, BUENOS_AIRES, day, days=2, min_elevation_deg=10)[0]
+    mid_pass = parse(first["aos"]) + timedelta(minutes=1)
+
+    p = find_passes(*ISS, BUENOS_AIRES, mid_pass, days=0.05, min_elevation_deg=10)[0]
+
+    assert parse(p["aos"]) == mid_pass and p["aos_clipped"]
+    assert p["los"] == first["los"] and not p["los_clipped"]
 
 
 def test_ground_track_samples_every_step_and_stays_within_inclination():

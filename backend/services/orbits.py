@@ -45,11 +45,13 @@ def orbit_type(altitude_km: float, eccentricity: float) -> str:
         return "GEO"
     if altitude_km < GEO_ALTITUDE_KM:
         return "MEO"
-    return "HEO"
+    return "beyond-GEO"
 
 
 def footprint_radius_km(altitude_km: float, min_elevation_deg: float) -> float:
     """λ = arccos(R/(R+h)·cos ε) − ε; ground radius R·λ (TFI §3.5)."""
+    if altitude_km <= 0:
+        return 0.0
     eps = math.radians(min_elevation_deg)
     central_angle = math.acos(EARTH_RADIUS_KM / (EARTH_RADIUS_KM + altitude_km) * math.cos(eps)) - eps
     return EARTH_RADIUS_KM * central_angle
@@ -92,7 +94,12 @@ def find_passes(
     days: float,
     min_elevation_deg: float,
 ) -> list[dict]:
-    """AOS/LOS are exact crossings of the elevation mask (skyfield find_events); passes cut by the window are dropped."""
+    """AOS/LOS are exact crossings of the elevation mask (skyfield find_events).
+
+    A pass already in progress at `start`, or still in progress at the end of the window,
+    is clipped to the window and flagged with aos_clipped / los_clipped: that covers the
+    pass happening right now and satellites that never set (GEO).
+    """
     satellite = _satellite(tle1, tle2)
     topos = station.topos()
     relative = satellite - topos
@@ -100,24 +107,36 @@ def find_passes(
     t1 = timescale.from_datetime(start + timedelta(days=days))
     times, events = satellite.find_events(topos, t0, t1, altitude_degrees=min_elevation_deg)
 
+    def elevation(t) -> float:
+        return float(relative.at(t).altaz()[0].degrees)
+
     passes = []
     current = None
+    if elevation(t0) >= min_elevation_deg:
+        current = {"aos": t0, "aos_clipped": True, "tca": t0, "max_elevation": elevation(t0)}
+
     for t, event in zip(times, events):
         if event == RISE:
-            current = {"aos": t, "tca": None, "max_elevation": -90.0}
+            current = {"aos": t, "aos_clipped": False, "tca": None, "max_elevation": -90.0}
         elif current is None:
             continue
         elif event == CULMINATE:
-            elevation = relative.at(t).altaz()[0].degrees
-            if elevation > current["max_elevation"]:
-                current["tca"], current["max_elevation"] = t, elevation
-        elif event == SET and current["tca"] is not None:
-            passes.append(_describe_pass(relative, current, t))
+            if elevation(t) > current["max_elevation"]:
+                current["tca"], current["max_elevation"] = t, elevation(t)
+        elif event == SET:
+            if current["tca"] is not None:
+                passes.append(_describe_pass(relative, current, t, los_clipped=False))
             current = None
+
+    if current is not None:
+        if elevation(t1) > current["max_elevation"]:
+            current["tca"], current["max_elevation"] = t1, elevation(t1)
+        if current["tca"] is not None:
+            passes.append(_describe_pass(relative, current, t1, los_clipped=True))
     return passes
 
 
-def _describe_pass(relative, current: dict, los) -> dict:
+def _describe_pass(relative, current: dict, los, los_clipped: bool) -> dict:
     aos = current["aos"]
     return {
         "aos": _iso(aos),
@@ -127,6 +146,8 @@ def _describe_pass(relative, current: dict, los) -> dict:
         "max_elevation_deg": round(float(current["max_elevation"]), 2),
         "aos_azimuth_deg": round(float(relative.at(aos).altaz()[1].degrees), 2),
         "los_azimuth_deg": round(float(relative.at(los).altaz()[1].degrees), 2),
+        "aos_clipped": current["aos_clipped"],
+        "los_clipped": los_clipped,
     }
 
 
