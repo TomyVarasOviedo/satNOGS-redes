@@ -23,3 +23,12 @@ LUSAT_OBSERVATION = {
     "tle1": "1 20442U 90005G   26289.64795207  .00000082  00000-0  45885-4 0  9997",
     "tle2": "2 20442  98.8785 314.7659 0011105 205.1129 154.9516 14.34150762919803",
 }
+
+LUSAT_TRANSMITTERS = [
+    {"uuid": "Z2ViCYEPTmBkKPkMKFgnJg", "description": "BPSK 1k2 Transceiver", "alive": True, "type": "Transceiver",
+     "downlink_low": 437150000, "downlink_drift": None, "downlink_drifted": 437150000, "mode": "BPSK", "baud": 1200.0},
+    {"uuid": "ZAKErADdWKpMiDjvKKhmmB", "description": "Mode U TLM", "alive": True, "type": "Transmitter",
+     "downlink_low": 437125000, "downlink_drift": 3088, "downlink_drifted": 437126350, "mode": "CW", "baud": 0.0},
+    {"uuid": "iQRkZ4BeNeTphSGEwtBztm", "description": "Carrier", "alive": True, "type": "Transmitter",
+     "downlink_low": 435078000, "downlink_drift": None, "downlink_drifted": 435078000, "mode": None, "baud": None},
+]

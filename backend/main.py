@@ -7,10 +7,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 import httpx
 import json
 import uvicorn
-from utils.config import SATNOGS_CONFIG, SERVER_CONFIG, RESILIENCE_CONFIG, SATELLITES_TO_MONITOR, REFERENCE_STATION
+from utils.config import SATNOGS_CONFIG, SERVER_CONFIG, RESILIENCE_CONFIG, SATELLITES_TO_MONITOR, REFERENCE_STATION, LINK_DEFAULTS
 from services.satnogs import fetch_with_cache
 from services.refresher import refresher
-from services import orbits
+from services import doppler, linkbudget, orbits
 
 
 @asynccontextmanager
@@ -199,6 +199,44 @@ def station_from(lat: float | None, lng: float | None, alt: float | None) -> orb
     )
 
 
+async def fetch_transmitters_or_empty(sat_id: str) -> list[dict]:
+    """Transmitters only enrich a prediction, so a SatNOGS failure degrades to no link data."""
+    try:
+        data, _, _ = await fetch_with_cache(
+            endpoint="transmitters",
+            params={"sat_id": sat_id},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_METADATA"],
+            source="DB",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['DB_URL_SATNOGS']}/transmitters/?{urlencode(p)}",
+        )
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def pass_link(tle: dict, station: orbits.Station, satellite_pass: dict, transmitter: dict | None) -> dict | None:
+    if transmitter is None:
+        return None
+
+    def margin_at(iso: str) -> float | None:
+        moment = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        distance = orbits.ground_track(tle["tle1"], tle["tle2"], moment, moment, 1, station)[0]["range_km"]
+        budget = linkbudget.link_budget(
+            distance, doppler.downlink_frequency_hz(transmitter), baud=transmitter.get("baud"), mode=transmitter.get("mode"), **LINK_DEFAULTS
+        )
+        return budget["margin_db"]
+
+    return {
+        "transmitter_uuid": transmitter.get("uuid"),
+        "description": transmitter.get("description"),
+        "freq_hz": doppler.downlink_frequency_hz(transmitter),
+        "mode": transmitter.get("mode"),
+        "baud": transmitter.get("baud"),
+        "margin_at_aos_db": margin_at(satellite_pass["aos"]),
+        "margin_at_tca_db": margin_at(satellite_pass["tca"]),
+    }
+
+
 @app.get("/orbits/classify")
 async def classify_orbit(sat_id: str):
     try:
@@ -230,6 +268,9 @@ async def predict_passes(
         station = station_from(lat, lng, alt)
         min_elevation = REFERENCE_STATION["min_elevation_deg"] if horizon_deg is None else horizon_deg
         passes = orbits.find_passes(tle["tle1"], tle["tle2"], station, utc(start), days, min_elevation)
+        transmitter = doppler.pick_transmitter(await fetch_transmitters_or_empty(sat_id))
+        for p in passes:
+            p["link"] = pass_link(tle, station, p, transmitter)
         return build_response(
             {
                 "sat_id": sat_id,
@@ -273,6 +314,77 @@ async def predict_ground_track(
         return build_response(track, source, cache_age)
     except Exception as e:
         return build_response({"error": str(e)}, "error", 0, 500)
+
+
+@app.get("/predictions/doppler")
+async def predict_doppler(
+    sat_id: str,
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    alt: float | None = Query(None),
+    horizon_deg: float | None = Query(None, ge=0, lt=90),
+    start: datetime | None = Query(None),
+    days: float = Query(2, gt=0, le=7),
+    freq_hz: float | None = Query(None, gt=0),
+    transmitter_uuid: str | None = Query(None),
+    step: int = Query(10, ge=1, le=300),
+):
+    """Frequency to tune along the next pass that starts (or is under way) after `start`."""
+    try:
+        tle, source, cache_age = await fetch_current_tle(sat_id)
+        if tle is None:
+            return tle_not_found(sat_id, source, cache_age)
+        station = station_from(lat, lng, alt)
+        min_elevation = REFERENCE_STATION["min_elevation_deg"] if horizon_deg is None else horizon_deg
+        passes = orbits.find_passes(tle["tle1"], tle["tle2"], station, utc(start), days, min_elevation)
+        if not passes:
+            return build_response({"error": f"No pass above {min_elevation}° in the next {days} days"}, source, cache_age, 404)
+
+        transmitter = None
+        if freq_hz is None:
+            transmitter = doppler.pick_transmitter(await fetch_transmitters_or_empty(sat_id), transmitter_uuid)
+            if transmitter is None:
+                return build_response({"error": "No downlink transmitter known; pass freq_hz"}, source, cache_age, 404)
+            freq_hz = doppler.downlink_frequency_hz(transmitter)
+
+        satellite_pass = passes[0]
+        curve = doppler.doppler_curve(
+            tle["tle1"],
+            tle["tle2"],
+            station,
+            datetime.fromisoformat(satellite_pass["aos"].replace("Z", "+00:00")),
+            datetime.fromisoformat(satellite_pass["los"].replace("Z", "+00:00")),
+            freq_hz,
+            step,
+        )
+        baud, mode = (transmitter.get("baud"), transmitter.get("mode")) if transmitter else (None, None)
+        for point in curve["points"]:
+            point["margin_db"] = linkbudget.link_budget(point["range_km"], freq_hz, baud=baud, mode=mode, **LINK_DEFAULTS)["margin_db"]
+        return build_response({"sat_id": sat_id, "pass": satellite_pass, "transmitter": transmitter, **curve}, source, cache_age)
+    except Exception as e:
+        return build_response({"error": str(e)}, "error", 0, 500)
+
+
+@app.get("/linkbudget")
+async def calculate_link_budget(
+    freq_hz: float = Query(..., gt=0),
+    distance_km: float | None = Query(None, gt=0),
+    elevation_deg: float | None = Query(None, ge=0, le=90),
+    altitude_km: float | None = Query(None, gt=0),
+    eirp_dbw: float = Query(LINK_DEFAULTS["eirp_dbw"]),
+    gain_dbi: float = Query(LINK_DEFAULTS["gain_dbi"]),
+    noise_k: float = Query(LINK_DEFAULTS["noise_temp_k"], gt=0),
+    losses_db: float = Query(LINK_DEFAULTS["losses_db"], ge=0),
+    baud: float = Query(1200, ge=0),
+    mode: str = Query("BPSK"),
+):
+    """Editable link budget: give distance_km, or elevation_deg + altitude_km for the slant range."""
+    if distance_km is None:
+        if elevation_deg is None or altitude_km is None:
+            return build_response({"error": "Give distance_km, or elevation_deg and altitude_km"}, "error", 0, 422)
+        distance_km = linkbudget.slant_range_km(elevation_deg, altitude_km)
+    budget = linkbudget.link_budget(distance_km, freq_hz, eirp_dbw, gain_dbi, noise_k, baud, mode, losses_db)
+    return build_response(budget, "computed", 0)
 
 
 @app.get("/satellites/monitored")
