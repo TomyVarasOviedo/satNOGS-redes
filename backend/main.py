@@ -387,7 +387,26 @@ async def calculate_link_budget(
     return build_response(budget, "computed", 0)
 
 
+VALIDATION_MAX_PAGES = 4
+
+
+def iso(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def start_of_day(moment: datetime) -> datetime:
+    return moment.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def end_of_day(moment: datetime) -> datetime:
+    """Next UTC midnight (or the same instant if already midnight): a day-stable cache key keeps the demo working offline."""
+    midnight = start_of_day(moment)
+    return midnight if midnight == moment else midnight + timedelta(days=1)
+
+
 VALIDATION_NOTES = [
+    "Observations come from SatNOGS in pages of 25, newest first; at most 100 are scored "
+    "(truncated: true when there were more in the period).",
     "Each observation is predicted with the TLE embedded in it, at its own station.",
     "Elevation and azimuths are compared inside the observation's scheduled window; "
     "SatNOGS rounds them to whole degrees.",
@@ -408,24 +427,25 @@ async def validate_satellite(
 ):
     """Predicted passes vs. the satellite's most recent good SatNOGS observations in the period."""
     try:
+        end = utc(end)
+        begin = end - timedelta(days=days)
         data, source, cache_age = await fetch_with_cache(
             endpoint="observations_good",
-            params={"sat_id": sat_id, "status": "good"},
+            params={"sat_id": sat_id, "status": "good", "start": iso(start_of_day(begin)), "end": iso(end_of_day(end))},
             ttl=RESILIENCE_CONFIG["DEFAULT_TTL_OBSERVATIONS"],
             source="NETWORK",
             url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?{urlencode(p)}",
+            max_pages=VALIDATION_MAX_PAGES,
         )
-        end = utc(end)
-        begin = end - timedelta(days=days)
-        in_period = [
-            o for o in (data if isinstance(data, list) else [])
-            if o.get("start") and begin <= datetime.fromisoformat(o["start"].replace("Z", "+00:00")) <= end
-        ]
+        fetched = data.get("items", []) if isinstance(data, dict) else []
+        in_period = [o for o in fetched if o.get("start") and begin <= validation.parse_time(o["start"]) <= end]
         report = validation.validate_observations(in_period)
         return build_response(
             {
                 "sat_id": sat_id,
-                "period": {"start": begin.strftime("%Y-%m-%dT%H:%M:%SZ"), "end": end.strftime("%Y-%m-%dT%H:%M:%SZ")},
+                "period": {"start": iso(begin), "end": iso(end)},
+                "observations_fetched": len(fetched),
+                "truncated": bool(data.get("truncated")) if isinstance(data, dict) else False,
                 **report,
                 "notes": VALIDATION_NOTES,
             },

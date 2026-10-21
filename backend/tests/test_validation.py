@@ -45,11 +45,31 @@ def test_frequency_offset_is_reported_as_oscillator_drift_not_doppler():
     assert 8_000 < result["predicted_max_doppler_hz"] < 11_000
 
 
-def test_observations_without_tle_or_station_are_skipped():
-    report = validate_observations([{**by_id(15224792), "tle1": None}, by_id(15220664)])
+def test_observations_without_tle_or_id_are_skipped_with_a_reason():
+    without_id = {k: v for k, v in by_id(15203946).items() if k != "id"}
+
+    report = validate_observations([{**by_id(15224792), "tle1": None}, without_id, by_id(15220664)])
 
     assert report["summary"]["count"] == 1
-    assert report["skipped"] == [15224792]
+    assert report["skipped"] == [
+        {"id": 15224792, "reason": "missing tle1"},
+        {"id": None, "reason": "missing id"},
+    ]
+
+
+def test_an_observation_whose_satellite_never_rises_in_its_window_is_skipped():
+    elsewhere = {**by_id(15224792), "station_lat": -by_id(15224792)["station_lat"], "station_lng": 180 + by_id(15224792)["station_lng"] - 360}
+
+    report = validate_observations([elsewhere])
+
+    assert report["summary"]["count"] == 0
+    assert report["skipped"][0]["reason"].startswith("satellite below the horizon")
+
+
+def test_timestamps_without_timezone_are_read_as_utc():
+    observation = {**by_id(15224792), "start": "2026-10-17T02:14:52", "end": "2026-10-17T02:29:38"}
+
+    assert validate_observation(observation)["error_max_elevation_deg"] == pytest.approx(0, abs=1)
 
 
 def test_summary_statistics():

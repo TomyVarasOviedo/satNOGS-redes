@@ -11,7 +11,7 @@ the transmitter's oscillator drift (downlink_drift, in ppb). The predicted Doppl
 not scored.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -26,11 +26,12 @@ ERROR_METRICS = [
     "error_rise_azimuth_deg",
     "error_set_azimuth_deg",
 ]
-REQUIRED_FIELDS = ["tle1", "tle2", "station_lat", "station_lng", "start", "end", "max_altitude"]
+REQUIRED_FIELDS = ["id", "tle1", "tle2", "station_lat", "station_lng", "start", "end", "max_altitude"]
 
 
-def _parse(iso: str) -> datetime:
-    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+def parse_time(iso: str) -> datetime:
+    moment = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
 def _azimuth_error(predicted: float, observed: float) -> float:
@@ -40,7 +41,7 @@ def _azimuth_error(predicted: float, observed: float) -> float:
 def validate_observation(observation: dict) -> dict:
     tle = (observation["tle1"], observation["tle2"])
     station = Station(observation["station_lat"], observation["station_lng"], observation.get("station_alt") or 0)
-    start, end = _parse(observation["start"]), _parse(observation["end"])
+    start, end = parse_time(observation["start"]), parse_time(observation["end"])
 
     window = ground_track(*tle, start, end, WINDOW_STEP_S, station)
     window += ground_track(*tle, end, end, WINDOW_STEP_S, station)
@@ -49,7 +50,7 @@ def validate_observation(observation: dict) -> dict:
     search_from = start - timedelta(minutes=30)
     hours = (end - search_from).total_seconds() / 3600 + 0.5
     passes = find_passes(*tle, station, search_from, days=hours / 24, min_elevation_deg=0)
-    full_pass = next((p for p in passes if _parse(p["aos"]) <= end and _parse(p["los"]) >= start), None)
+    full_pass = next((p for p in passes if parse_time(p["aos"]) <= end and parse_time(p["los"]) >= start), None)
 
     result = {
         "observation_id": observation["id"],
@@ -58,8 +59,9 @@ def validate_observation(observation: dict) -> dict:
         "end": observation["end"],
         "predicted_aos": full_pass["aos"] if full_pass else None,
         "predicted_los": full_pass["los"] if full_pass else None,
-        "error_start_s": (_parse(full_pass["aos"]) - start).total_seconds() if full_pass else None,
-        "error_end_s": (_parse(full_pass["los"]) - end).total_seconds() if full_pass else None,
+        "error_start_s": (parse_time(full_pass["aos"]) - start).total_seconds() if full_pass else None,
+        "error_end_s": (parse_time(full_pass["los"]) - end).total_seconds() if full_pass else None,
+        "predicted_max_elevation_deg": max_elevation,
         "error_max_elevation_deg": max_elevation - observation["max_altitude"],
         "error_rise_azimuth_deg": None,
         "error_set_azimuth_deg": None,
@@ -96,10 +98,16 @@ def summarize(rows: list[dict], metrics: list[str] = ERROR_METRICS) -> dict:
 
 
 def validate_observations(observations: list[dict]) -> dict:
+    """Skips, with a reason, observations missing data or inconsistent with their own TLE and station."""
     rows, skipped = [], []
     for observation in observations:
-        if any(observation.get(field) in (None, "") for field in REQUIRED_FIELDS):
-            skipped.append(observation.get("id"))
+        missing = next((field for field in REQUIRED_FIELDS if observation.get(field) in (None, "")), None)
+        if missing:
+            skipped.append({"id": observation.get("id"), "reason": f"missing {missing}"})
             continue
-        rows.append(validate_observation(observation))
+        row = validate_observation(observation)
+        if not row["predicted_max_elevation_deg"] >= 0:
+            skipped.append({"id": row["observation_id"], "reason": "satellite below the horizon for its whole window (bad TLE or station)"})
+            continue
+        rows.append(row)
     return {"observations": rows, "summary": summarize(rows), "skipped": skipped}

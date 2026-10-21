@@ -1,3 +1,4 @@
+import httpx
 import asyncio
 import time
 
@@ -87,3 +88,33 @@ def test_requests_send_the_token_when_configured(fake_satnogs, monkeypatch):
     asyncio.run(fetch())
 
     assert fake_satnogs.requests[0].headers["authorization"] == "Token abc123"
+
+
+def test_paginated_fetch_follows_next_links_up_to_max_pages(fake_satnogs, monkeypatch):
+    pages = {
+        "1": ([{"id": 1}, {"id": 2}], '<https://network.test/observations/?cursor=2>; rel="next"'),
+        "2": ([{"id": 3}], '<https://network.test/observations/?cursor=3>; rel="next"'),
+        "3": ([{"id": 4}], None),
+    }
+
+    def paged(request):
+        fake_satnogs.requests.append(request)
+        body, link = pages[request.url.params.get("cursor", "1")]
+        return httpx.Response(200, json=body, headers={"Link": link} if link else {})
+
+    monkeypatch.setattr(fake_satnogs, "handler", paged)
+
+    data, source, _ = asyncio.run(
+        satnogs.fetch_with_cache(
+            endpoint="paged",
+            params={"sat_id": "X"},
+            ttl=300,
+            source="NETWORK",
+            url_builder=lambda p: "https://network.test/observations/?sat_id=X",
+            max_pages=2,
+        )
+    )
+
+    assert source == "live"
+    assert data == {"items": [{"id": 1}, {"id": 2}, {"id": 3}], "truncated": True}
+    assert len(fake_satnogs.requests) == 2
