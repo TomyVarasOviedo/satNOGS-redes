@@ -10,7 +10,7 @@ import uvicorn
 from utils.config import SATNOGS_CONFIG, SERVER_CONFIG, RESILIENCE_CONFIG, SATELLITES_TO_MONITOR, REFERENCE_STATION, LINK_DEFAULTS
 from services.satnogs import fetch_with_cache
 from services.refresher import refresher
-from services import doppler, linkbudget, orbits
+from services import doppler, linkbudget, orbits, validation
 
 
 @asynccontextmanager
@@ -385,6 +385,75 @@ async def calculate_link_budget(
         distance_km = linkbudget.slant_range_km(elevation_deg, altitude_km)
     budget = linkbudget.link_budget(distance_km, freq_hz, eirp_dbw, gain_dbi, noise_k, baud, mode, losses_db)
     return build_response(budget, "computed", 0)
+
+
+VALIDATION_MAX_PAGES = 4
+
+
+def iso(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def start_of_day(moment: datetime) -> datetime:
+    return moment.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def end_of_day(moment: datetime) -> datetime:
+    """Next UTC midnight (or the same instant if already midnight): a day-stable cache key keeps the demo working offline."""
+    midnight = start_of_day(moment)
+    return midnight if midnight == moment else midnight + timedelta(days=1)
+
+
+VALIDATION_NOTES = [
+    "Observations come from SatNOGS in pages of 25, newest first; at most 100 are scored "
+    "(truncated: true when there were more in the period).",
+    "Each observation is predicted with the TLE embedded in it, at its own station.",
+    "Elevation and azimuths are compared inside the observation's scheduled window; "
+    "SatNOGS rounds them to whole degrees.",
+    "error_start_s/error_end_s compare against the full pass at 0°: they include the station "
+    "scheduler cutting the window, not only prediction error.",
+    "SatNOGS start/end come from its own SGP4 prediction, so agreement validates the implementation, "
+    "not the orbit itself.",
+    "SatNOGS stores no measured Doppler: observation_frequency − downlink_low is the transmitter's "
+    "oscillator drift (ppb). The predicted Doppler is reported, not scored.",
+]
+
+
+@app.get("/validation/satellite")
+async def validate_satellite(
+    sat_id: str,
+    days: float = Query(7, gt=0, le=30),
+    end: datetime | None = Query(None),
+):
+    """Predicted passes vs. the satellite's most recent good SatNOGS observations in the period."""
+    try:
+        end = utc(end)
+        begin = end - timedelta(days=days)
+        data, source, cache_age = await fetch_with_cache(
+            endpoint="observations_good",
+            params={"sat_id": sat_id, "status": "good", "start": iso(start_of_day(begin)), "end": iso(end_of_day(end))},
+            ttl=RESILIENCE_CONFIG["DEFAULT_TTL_OBSERVATIONS"],
+            source="NETWORK",
+            url_builder=lambda p: f"{SATNOGS_CONFIG['NETWORK_URL']}/observations/?{urlencode(p)}",
+            max_pages=VALIDATION_MAX_PAGES,
+        )
+        fetched = data.get("items", []) if isinstance(data, dict) else []
+        in_period = [o for o in fetched if o.get("start") and begin <= validation.parse_time(o["start"]) <= end]
+        report = validation.validate_observations(in_period)
+        return build_response(
+            {
+                "sat_id": sat_id,
+                "period": {"start": iso(begin), "end": iso(end)},
+                "observations_fetched": len(fetched),
+                "truncated": bool(data.get("truncated")) if isinstance(data, dict) else False,
+                **report,
+                "notes": VALIDATION_NOTES,
+            },
+            source,
+            cache_age,
+        )
+    except Exception as e:
+        return build_response({"error": str(e)}, "error", 0, 500)
 
 
 @app.get("/satellites/monitored")

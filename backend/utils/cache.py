@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import time
 from pathlib import Path
@@ -12,8 +13,10 @@ class CacheManager:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _key_for(self, endpoint: str, params: dict) -> str:
+        """File name per request; characters Windows rejects (e.g. ':' in ISO times) become '-'."""
         param_str = "_".join(f"{k}={v}" for k, v in sorted(params.items()))
-        return f"{endpoint}_{param_str}.json" if param_str else f"{endpoint}.json"
+        key = f"{endpoint}_{param_str}" if param_str else endpoint
+        return re.sub(r'[<>:"/\\|?*]', "-", key) + ".json"
 
     def _cache_path(self, key: str) -> Path:
         return self.cache_dir / key

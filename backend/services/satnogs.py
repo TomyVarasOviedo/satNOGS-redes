@@ -103,12 +103,31 @@ async def fetch_with_retry(
     raise last_exception
 
 
+async def fetch_all_pages(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict,
+    source: str,
+    max_pages: int,
+) -> dict:
+    """Follows SatNOGS' cursor pagination (Link: rel="next") for at most max_pages."""
+    items = []
+    for _ in range(max_pages):
+        response = await fetch_with_retry(client, url, headers, source)
+        items += response.json()
+        url = response.links.get("next", {}).get("url")
+        if not url:
+            break
+    return {"items": items, "truncated": url is not None}
+
+
 async def fetch_with_cache(
     endpoint: str,
     params: dict,
     ttl: int,
     source: str,
     url_builder: Callable[[dict], str],
+    max_pages: int | None = None,
 ) -> tuple[Any, str, int]:
     cached_data, cache_status, cache_age = cache_manager.get(endpoint, params, ttl)
 
@@ -124,14 +143,11 @@ async def fetch_with_cache(
     async with httpx.AsyncClient() as client:
         try:
             url = url_builder(params)
-            response = await cb.call(
-                fetch_with_retry,
-                client,
-                url,
-                headers_for(source),
-                source,
-            )
-            data = response.json()
+            if max_pages:
+                data = await cb.call(fetch_all_pages, client, url, headers_for(source), source, max_pages)
+            else:
+                response = await cb.call(fetch_with_retry, client, url, headers_for(source), source)
+                data = response.json()
             cache_manager.set(endpoint, params, data)
             return data, "live", 0
         except Exception as e:
