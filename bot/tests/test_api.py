@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from api import ApiError, NocApi
+from api import AmbiguousSatellite, ApiError, NocApi, SatelliteNotFound
 
 
 def response(status: int, body, source: str = "live") -> httpx.Response:
@@ -22,6 +22,96 @@ async def test_resolves_a_satellite_by_exact_name():
     api = NocApi("http://backend", client=client)
 
     assert await api.resolve_sat_id("LUSAT") == "ZDPY"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rejects_a_name_that_matches_several_satellites():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/satelites/x")
+        return response(
+            200,
+            [
+                {"name": "LES-1", "sat_id": "AMOM"},
+                {"name": "PROSPERO", "sat_id": "MDNJ"},
+            ],
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    api = NocApi("http://backend", client=client)
+
+    with pytest.raises(AmbiguousSatellite, match="más de un satélite") as exc:
+        await api.resolve_sat_id("x")
+
+    assert "LES-1" in str(exc.value)
+    assert "PROSPERO" in str(exc.value)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_accepts_a_unique_partial_match():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/satelites/NOAA")
+        return response(200, [{"name": "NOAA 18", "sat_id": "SWSC"}])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    api = NocApi("http://backend", client=client)
+
+    assert await api.resolve_sat_id("NOAA") == "SWSC"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rejects_multiple_exact_matches():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response(
+            200,
+            [
+                {"name": "ISS", "sat_id": "ONE"},
+                {"name": "ISS", "sat_id": "TWO"},
+            ],
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    api = NocApi("http://backend", client=client)
+
+    with pytest.raises(AmbiguousSatellite):
+        await api.resolve_sat_id("ISS")
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reports_when_the_satellite_does_not_exist():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response(200, [])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    api = NocApi("http://backend", client=client)
+
+    with pytest.raises(SatelliteNotFound, match="No se encontró"):
+        await api.resolve_sat_id("NO EXISTE")
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_exact_only_does_not_accept_a_partial_match():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/satelites/x 3")
+        return response(200, [{"name": "AOBA-VELOX 3", "sat_id": "NFQJ"}])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    api = NocApi("http://backend", client=client)
+
+    with pytest.raises(SatelliteNotFound):
+        await api.resolve_sat_id("x 3", exact_only=True)
+
+    assert await api.resolve_sat_id("x 3") == "NFQJ"
+
+    with pytest.raises(SatelliteNotFound):
+        await api.resolve_sat_id("x 3", exact_only=True)
+
     await client.aclose()
 
 

@@ -10,7 +10,7 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, TypeHandler
 
 from alerts import AlertService, parse_iso, send_chunks
-from api import ApiError, NocApi
+from api import ApiError, NocApi, SatelliteNotFound
 from chat_store import ChatStore
 from config import Settings, load_settings
 from messages import (
@@ -53,13 +53,30 @@ def _runtime(context: ContextTypes.DEFAULT_TYPE) -> Runtime:
     return context.application.bot_data["runtime"]
 
 
-def _split_args(args: list[str], allow_days: bool = False) -> tuple[str | None, int | None]:
+def _args_name(args: list[str]) -> str | None:
+    return " ".join(args).strip() or None
+
+
+async def _resolve_name_and_days(
+    api: NocApi, args: list[str]
+) -> tuple[str | None, int | None]:
     parts = list(args)
-    days = None
-    if allow_days and parts and parts[-1].isdigit():
-        days = int(parts.pop())
-    name = " ".join(parts).strip() or None
-    return name, days
+    if not parts:
+        return None, None
+
+    full = " ".join(parts).strip()
+    if not full:
+        return None, None
+    if not parts[-1].isdigit():
+        return full, None
+    if len(parts) == 1:
+        return None, int(parts[0])
+
+    try:
+        await api.resolve_sat_id(full, exact_only=True)
+    except SatelliteNotFound:
+        return " ".join(parts[:-1]).strip() or None, int(parts[-1])
+    return full, None
 
 
 async def _pairs(api: NocApi, name: str | None) -> list[tuple[str, str]]:
@@ -109,7 +126,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_passes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings = _settings(context)
-    name, days = _split_args(context.args, allow_days=True)
+    try:
+        name, days = await _resolve_name_and_days(_api(context), context.args)
+    except ApiError as exc:
+        await _reply(update, format_error(str(exc)))
+        return
     days = max(1, min(7, days or 2))
 
     try:
@@ -150,7 +171,7 @@ async def cmd_passes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings = _settings(context)
-    name, _ = _split_args(context.args)
+    name = _args_name(context.args)
 
     try:
         pairs = await _pairs(_api(context), name)
@@ -217,7 +238,7 @@ async def cmd_agenda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def cmd_tle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings = _settings(context)
-    name, _ = _split_args(context.args)
+    name = _args_name(context.args)
 
     try:
         pairs = await _pairs(_api(context), name)

@@ -12,6 +12,14 @@ class ApiError(Exception):
     """Error de red o de la API del backend."""
 
 
+class SatelliteNotFound(ApiError):
+    """No hay ningún satélite con ese nombre."""
+
+
+class AmbiguousSatellite(ApiError):
+    """El nombre consultado devuelve más de un satélite."""
+
+
 @dataclass(frozen=True)
 class ApiResult:
     data: Any
@@ -30,6 +38,18 @@ def _name_matches(satellite: dict, name: str) -> bool:
     term = name.strip().lower()
     candidates = [satellite.get("name") or ""] + (satellite.get("names") or "").split(",")
     return any(term == candidate.strip().lower() for candidate in candidates)
+
+
+def _name_preview(satellites: list[dict], limit: int = 5) -> str:
+    names: list[str] = []
+    for satellite in satellites:
+        name = (satellite.get("name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    preview = ", ".join(names[:limit])
+    if len(names) > limit:
+        preview += ", …"
+    return preview
 
 
 def _detail(response: httpx.Response) -> str:
@@ -94,17 +114,38 @@ class NocApi:
     async def monitored(self) -> ApiResult:
         return await self._get("/satellites/monitored")
 
-    async def resolve_sat_id(self, name: str) -> str:
+    async def resolve_sat_id(self, name: str, exact_only: bool = False) -> str:
         key = name.strip().lower()
-        if key in self._sat_ids:
+        if not exact_only and key in self._sat_ids:
             return self._sat_ids[key]
 
         result = await self._get(f"/satelites/{quote(name.strip(), safe='')}")
         matches = result.data if isinstance(result.data, list) else []
         if not matches:
-            raise ApiError(f"No se encontró el satélite '{name}'")
+            raise SatelliteNotFound(f"No se encontró el satélite '{name}'")
 
-        chosen = next((sat for sat in matches if _name_matches(sat, name)), matches[0])
+        exact = [sat for sat in matches if _name_matches(sat, name)]
+        if exact_only and not exact:
+            raise SatelliteNotFound(f"No se encontró el satélite '{name}'")
+        if len(exact) == 1:
+            chosen = exact[0]
+        elif len(exact) > 1:
+            preview = _name_preview(exact)
+            detail = f": {preview}" if preview else ""
+            raise AmbiguousSatellite(
+                f"El nombre '{name}' devuelve más de un satélite{detail}. "
+                "Escribí el nombre exacto."
+            )
+        elif len(matches) == 1:
+            chosen = matches[0]
+        else:
+            preview = _name_preview(matches)
+            detail = f": {preview}" if preview else ""
+            raise AmbiguousSatellite(
+                f"El nombre '{name}' devuelve más de un satélite{detail}. "
+                "Escribí el nombre exacto."
+            )
+
         sat_id = chosen.get("sat_id")
         if not sat_id:
             raise ApiError(f"El satélite '{name}' no tiene sat_id en la respuesta")
