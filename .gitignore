@@ -11,3 +11,7 @@ node_modules/
 # Noodle configutation files
 backend/requests/.timeline/*
 backend/requests/.environments/request.local.env
+
+# Bot state
+bot/state.json
+bot/chat_id.txt
