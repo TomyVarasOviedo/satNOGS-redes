@@ -56,7 +56,11 @@ def test_pass_alert_includes_time_doppler_and_margin():
     assert "437.150 MHz" in text
     assert "437.142 MHz" in text
     assert "+29.7 dB" in text
-    assert "decodable" in text
+    assert "DECODABLE" in text
+    assert "SINTONÍA" in text
+    assert "AOS" in text
+    assert "TCA" in text
+    assert "LOS" in text
 
 
 def test_pass_alert_flags_a_pass_without_margin():
@@ -64,8 +68,8 @@ def test_pass_alert_flags_a_pass_without_margin():
 
     text = format_pass_alert("LUSAT", pass_without_margin, None, UTC)
 
-    assert "sin margen" in text
-    assert "decodable" not in text
+    assert "SIN MARGEN" in text
+    assert "DECODABLE" not in text
 
 
 def test_pass_alert_escapes_the_satellite_name():
@@ -86,14 +90,23 @@ def test_agenda_lists_each_satellite_and_marks_empty_ones():
 
     assert "LUSAT" in text
     assert "ISS" in text
-    assert "sin pases" in text
+    assert "27/10" in text
+    assert "sin pases" in text.lower()
 
 
 def test_passes_list_includes_the_date():
     text = format_passes([("LUSAT", [PASS])], UTC)
 
     assert "27/10" in text
-    assert "18:30 UTC" in text
+    assert "18:30" in text
+    assert "Horarios en UTC" in text
+
+
+def test_messages_include_the_source_footer():
+    text = format_passes([("LUSAT", [PASS])], UTC, source="cache")
+
+    assert "◐ caché" in text
+    assert "NOC Satelital" in text
 
 
 def test_orbit_and_tle_warning():
@@ -135,3 +148,15 @@ def test_chunk_keeps_every_message_under_the_limit():
 
     assert all(len(part) <= 500 for part in parts)
     assert "".join(parts) == text
+
+
+def test_chunk_does_not_split_tagged_blocks():
+    first = "<pre>" + "\n".join(f"fila {index}" for index in range(10)) + "</pre>"
+    second = "<pre>" + "\n".join(f"otra {index}" for index in range(10)) + "</pre>"
+    text = first + "\n\n" + second
+
+    parts = chunk(text, limit=100)
+
+    assert len(parts) == 2
+    assert all(len(part) <= 100 for part in parts)
+    assert all(part.count("<pre>") == part.count("</pre>") for part in parts)
